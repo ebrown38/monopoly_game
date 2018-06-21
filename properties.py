@@ -557,5 +557,6 @@ class Properties():
                'Income Tax': [4],
                'Luxury Tax': [38],
                'Go Jail':[30],
-               'Misc':[10,20]}
+               'Jail':[10],
+               'Free Parking':[20]}
 

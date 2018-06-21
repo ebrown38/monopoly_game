@@ -3,18 +3,23 @@ import random
 
 class Game(object):
 
-    def __init__(self, banker):
+    def __init__(self, banker, main):
         self.banker = banker
+        self.main = main
         self.community_chest_cards = list(range(0, 16))
+        random.shuffle(self.community_chest_cards)
         self.chance_cards = list(range(0, 16))
+        random.shuffle(self.chance_cards)
 
     def find_property(self, spot, player):
 
         for name, spots in self.banker.special.items():
             for spot1 in spots:
                 if spot1 == spot:
+                    if name != 'Go Jail':
+                        self.count_landed_on(name)
                     if name == 'Go':
-                        # player.money += 200
+                        player.money += 200
                         return True
                     elif name == 'Community Chest':
                         self.community_chest(player)
@@ -32,6 +37,7 @@ class Game(object):
                     elif name == 'Go Jail':
                         player.spot = 10
                         player.jail = True
+                        self.count_landed_on('Jail')
                         return True
                     else:
                         return True
@@ -39,10 +45,11 @@ class Game(object):
         return False
 
     def community_chest(self, player):
-        card = random.choice(self.community_chest_cards)
+        card = self.community_chest_cards.pop()
         if card == 0:
             player.spot = 0
             player.money += 200
+            self.count_landed_on('Go')
         elif card == 1:
             player.money += 200
         elif card == 2:
@@ -54,6 +61,7 @@ class Game(object):
         elif card == 5:
             player.spot = 10
             player.jail = True
+            self.count_landed_on('Jail')
         elif card == 6:
             players = list(player.main.players)
             players.remove(player)
@@ -71,12 +79,14 @@ class Game(object):
         elif card == 11:
             player.money += 25
         elif card == 12:
-            for name, values in player.properties.items():
-                if 'hotels' in values and 'houses' in values:
-                    if values['hotels'] == 1:
-                        player.sub_money(115)
-                    elif values['houses'] > 0:
-                        player.sub_money(40 * values['houses'])
+            if len(player.properties) > 0:
+                properties = {k: v for k, v in player.properties.items() if v}
+                for name, values in properties.items():
+                    if 'hotels' in values and 'houses' in values and player.money > 0:
+                        if values['hotels'] == 1:
+                            player.sub_money(115)
+                        elif values['houses'] > 0:
+                            player.sub_money(40 * values['houses'])
         elif card == 13:
             player.money += 100
         elif card == 14:
@@ -84,16 +94,16 @@ class Game(object):
         elif card == 15:
             player.money += 100
 
-        index = self.community_chest_cards.index(card)
-        del self.community_chest_cards[index]
         if len(self.community_chest_cards) == 0:
             self.community_chest_cards = list(range(0, 16))
+            random.shuffle(self.community_chest_cards)
 
     def chance(self, player):
-        card = random.choice(self.chance_cards)
+        card = self.chance_cards.pop()
         if card == 0:  # Advance To Go
             player.spot = 0
             player.money += 200
+            self.count_landed_on('Go')
         elif card == 1:  # Advance to Illinois Ave
             if player.spot > 24:
                 player.money += 200
@@ -125,6 +135,7 @@ class Game(object):
         elif card == 5:  # Go directly to jail
             player.spot = 10
             player.jail = True
+            self.count_landed_on('Jail')
 
         elif card == 6:  # Elected Chariman of the board, pay each player $50
             players = list(player.main.players)
@@ -177,7 +188,34 @@ class Game(object):
         elif card == 15:  # Bank Pays you Dividend of $50
             player.money += 50
 
-        index = self.chance_cards.index(card)
-        del self.chance_cards[index]
         if len(self.chance_cards) == 0:
             self.chance_cards = list(range(0, 16))
+            random.shuffle(self.chance_cards)
+
+    def count_landed_on(self, name):
+        if not name in self.main.property_stats:
+            self.main.property_stats[name] = {}
+        if not 'Land On Count' in self.main.property_stats[name]:
+            self.main.property_stats[name]['Land On Count'] = 0
+        self.main.property_stats[name]['Land On Count'] += 1
+
+    def cost_of_property(self, name, cost):
+        if not name in self.main.property_stats:
+            self.main.property_stats[name] = {}
+        if not 'Cost' in self.main.property_stats[name]:
+            self.main.property_stats[name]['Cost'] = 0
+        self.main.property_stats[name]['Cost'] += cost
+
+    def rent_for_property(self, name, rent):
+        if not name in self.main.property_stats:
+            self.main.property_stats[name] = {}
+        if not 'rent' in self.main.property_stats[name]:
+            self.main.property_stats[name]['rent'] = 0
+        self.main.property_stats[name]['rent'] += rent
+
+    def set_color_assigned(self,player, prop='none'):
+        if prop != 'none' and not prop['Color'] in self.main.color_assigned:
+            self.main.color_assigned[prop['Color']] = player.name
+            for color, value in player.owned_colors.items():
+                if (value['owned']/value['possible']) >= .5:
+                    self.main.color_assigned[color] = player.name

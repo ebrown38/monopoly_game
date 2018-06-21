@@ -1,5 +1,6 @@
 import random
 import json
+from properties import Properties
 
 
 class Player(object):
@@ -18,10 +19,11 @@ class Player(object):
         self.get_out_jail = 0
         self.get_out_jail_attempt = 0
         self.alive = True
+        self.iswinner = False
+        self.game_properties = dict(Properties().properties)
 
     # Method That Runs Everything
     def player_turn(self):
-
         if len(self.owned_colors) > 0:
             for color, values in self.owned_colors.items():
                 # Trades properties with other players
@@ -34,23 +36,25 @@ class Player(object):
                         if not property['ismortgaged'] and values['owned'] == values['possible']:
                             # Add houses or Hotels to properties
                             if self.money >= (property['houses_props']['cost']) * values['owned'] * 1.5 and self.main.banker.houses > 0 and property['houses'] < 4:
-                                self.main.banker.buy_house(property, self)
+                                self.main.banker.buy_house(property, self, prop)
                             if property['houses'] == 4 and property['hotels'] == 0 and self.money >= (property['hotel_props']['cost']) * values['owned'] * 1.5 and self.main.banker.hotels > 0:
-                                self.main.banker.buy_hotel(property, self)
+                                self.main.banker.buy_hotel(property, self, prop)
 
         if len(self.properties) > 0:
             for name, values in self.properties.items():
                 if values['ismortgaged'] and self.money >= values['price']:
                     # Unmortgage any mortgaged properties
-                    self.main.banker.unmortgage_property(values, self)
+                    self.main.banker.unmortgage_property(values, self, name)
 
         roll = 0
         # Checks if In Jail. If is, tries to get out
         if self.jail:
+            # Checks if Player has get out of jail free card
             if self.get_out_jail > 0:
                 self.get_out_jail -= 1
                 self.jail = False
             else:
+                # If player does not have get out of jail free, attempt to roll a double
                 roll = self.roll_dice()
                 if self.jail:
                     self.get_out_jail_attempt += 1
@@ -69,12 +73,16 @@ class Player(object):
         self.roll_double = 0
 
     def land_on_property(self, multiplier=1):
+        for name, values in self.game_properties.items():
+            if values['Space'] == self.spot:
+                self.main.game.count_landed_on(name)
 
         isspecial = self.main.game.find_property(spot=self.spot, player=self)
 
         if not isspecial:
             purchased = False
             for name, values in self.main.banker.properties.items():
+
                 if values['Space'] == self.spot:
                     purchased = self.buy_property()
                     break
@@ -89,7 +97,7 @@ class Player(object):
         for player in players:
             for name, values in player.properties.items():
                 if values['Space'] == self.spot and not values['ismortgaged']:
-                    self.pay_rent(values, player, multiplier)
+                    self.pay_rent(values, player, name, multiplier)
                     return
 
     def trade(self, color):
@@ -102,54 +110,77 @@ class Player(object):
             if True:
                 player_owned_colors = dict(player.owned_colors)
                 for color2, values in player_owned_colors.items():
-                    if color2 == color:
+                    if color2 == color and self.main.color_assigned[color] == self.name:
                         for color3 in player_owned_colors:
                             for color4, values2 in self_owned_colors.items():
-                                if color3 == color4 and color3 != color:
-                                    if values['name'][0] and values2['name'][0]:
-                                        player_prop = dict({values['name'][0]: player.properties[values['name'][0]]})
-                                        self_prop = dict({values2['name'][0]: self.properties[values2['name'][0]]})
-                                    if not player_prop[values['name'][0]]['ismortgaged'] and not self_prop[values2['name'][0]]['ismortgaged']:
-                                        player_property_name = values['name'][0]
-                                        self_property_name = values2['name'][0]
-                                        if player_prop[player_property_name]['price'] == self_prop[self_property_name]['price']:
-                                            self.trading(player_property_name, self_property_name, player, player_prop, self_prop)
-                                        elif player_prop[player_property_name]['price'] > self_prop[self_property_name]['price']:
-                                            difference = abs(player_prop[player_property_name]['price'] - self_prop[self_property_name]['price'])
-                                            if self.money > 500:
-                                                player.money += int(difference)
-                                                self.money -= int(difference)
-                                                self.trading(player_property_name, self_property_name, player, player_prop,self_prop)
-                                        elif player_prop[player_property_name]['price'] < self_prop[self_property_name]['price']:
-                                            difference = abs(self_prop[self_property_name]['price'] - player_prop[player_property_name]['price'])
-                                            if player.money > 500:
-                                                player.money -= int(difference)
-                                                self.money += int(difference)
-                                                self.trading(player_property_name, self_property_name, player, player_prop, self_prop)
-                                        return
+                                if color3 == color4 and color3 != color and self.main.color_assigned[color4] == player.name:
+                                        if values['name'][0] and values2['name'][0]:
+                                            player_prop = dict({values['name'][0]: player.properties[values['name'][0]]})
+                                            self_prop = dict({values2['name'][0]: self.properties[values2['name'][0]]})
+                                        if not player_prop[values['name'][0]]['ismortgaged'] and not self_prop[values2['name'][0]]['ismortgaged']:
+                                            player_property_name = values['name'][0]
+                                            self_property_name = values2['name'][0]
+                                            is_a_monopoly = self.is_monopoly(player, player_prop[player_property_name]['Color'], self_prop[self_property_name]['price'])
+                                            player_extra = 0
+                                            self_extra = 0
+                                            if is_a_monopoly == 'Player':
+                                                player_extra = self_prop[self_property_name]['price']
+                                            elif is_a_monopoly == 'Self':
+                                                self_extra = player_prop[player_property_name]['price']
+                                            if player_prop[player_property_name]['price'] == self_prop[self_property_name]['price']:
+                                                if (player_extra > 0 or self_extra > 0) and player.money > player_extra and self.money > self_extra:
+                                                    if player_extra > 0:
+                                                        player.money -= player_extra
+                                                        self.money += player_extra
+                                                    elif self.money > 0:
+                                                        player.money += player_extra
+                                                        self.money -= player_extra
+                                                    self.trading(player_property_name, self_property_name, player, player_prop, self_prop)
+                                                elif player_extra == 0 and self_extra == 0:
+                                                    self.trading(player_property_name, self_property_name, player, player_prop, self_prop)
+                                            elif player_prop[player_property_name]['price'] > self_prop[self_property_name]['price']:
+                                                difference = abs(player_prop[player_property_name]['price'] - self_prop[self_property_name]['price'])
+                                                if self.money > (player_prop[player_property_name]['price'] + self_extra):
+                                                    player.money += int(difference + self_extra)
+                                                    self.money -= int(difference + self_extra)
+                                                    self.trading(player_property_name, self_property_name, player, player_prop,self_prop)
+                                            elif player_prop[player_property_name]['price'] < self_prop[self_property_name]['price']:
+                                                difference = abs(self_prop[self_property_name]['price'] - player_prop[player_property_name]['price'])
+                                                if player.money > (self_prop[self_property_name]['price'] + player_extra):
+                                                    player.money -= int(difference + player_extra)
+                                                    self.money += int(difference + player_extra)
+                                                    self.trading(player_property_name, self_property_name, player, player_prop, self_prop)
+                                            return
 
     def trading(self, player_card,self_card,player, player_prop,self_prop):
         player.properties.update(self_prop)
         self.properties.update(player_prop)
 
-        player.owned_colors[self_prop[self_card]['Color']]['name'].append(self_card)
-        player.owned_colors[self_prop[self_card]['Color']]['owned'] += 1
-
-        player.owned_colors[player_prop[player_card]['Color']]['name'].remove(player_card)
-        player.owned_colors[player_prop[player_card]['Color']]['owned'] -= 1
-        if player.owned_colors[player_prop[player_card]['Color']]['owned'] == 0:
-            del player.owned_colors[player_prop[player_card]['Color']]
-
-        self.owned_colors[player_prop[player_card]['Color']]['name'].append(player_card)
-        self.owned_colors[player_prop[player_card]['Color']]['owned'] += 1
-
-        self.owned_colors[self_prop[self_card]['Color']]['name'].remove(self_card)
-        self.owned_colors[self_prop[self_card]['Color']]['owned'] -= 1
-        if self.owned_colors[self_prop[self_card]['Color']]['owned'] == 0:
-            del self.owned_colors[self_prop[self_card]['Color']]
-
         del player.properties[player_card]
         del self.properties[self_card]
+
+        player_owned_color = {}
+        for name1, value1 in player.properties.items():
+            if value1['Color'] not in player_owned_color:
+                player_owned_color[value1['Color']] = {'owned': 1, 'possible': value1['total'],'name': [name1]}
+            else:
+                player.owned_colors[value1['Color']]['owned'] += 1
+                player.owned_colors[value1['Color']]['name'].append(name1)
+
+        player.owned_colors = player_owned_color
+
+        self_owned_color = {}
+        for name2, value2 in self.properties.items():
+            if value2['Color'] not in self_owned_color:
+                self_owned_color[value2['Color']] = {'owned': 1, 'possible': value2['total'], 'name': [name2]}
+            else:
+                self_owned_color[value2['Color']]['owned'] += 1
+                self_owned_color[value2['Color']]['name'].append(name2)
+
+        self.owned_colors = self_owned_color
+
+        self.main.game.set_color_assigned(player)
+        self.main.game.set_color_assigned(self)
 
     def roll_dice(self):
         dice = [1,2,3,4,5,6]
@@ -166,6 +197,7 @@ class Player(object):
             self.jail = True
             self.roll_again = False
             self.roll_double = 0
+            self.main.game.count_landed_on('Jail')
 
         return dice1 + dice2
 
@@ -183,9 +215,11 @@ class Player(object):
             if not self.jail:
                 self.land_on_property()
 
-    def pay_rent(self, property, player, multiplier=1):
+    def pay_rent(self, property, player, name, multiplier=1):
         rent = 0
-
+        rent_multiplier = 1
+        if player.owned_colors[property['Color']]['owned'] == player.owned_colors[property['Color']]['possible']:
+            rent_multiplier = 2
         if property['Color'] == 'RR':
             owned_rr = player.owned_colors['RR']['owned']
             if owned_rr == 1:
@@ -208,7 +242,9 @@ class Player(object):
             elif property['hotels'] == 1:
                 rent = property['hotel_props']['rent']
         else:
-            rent = property['rent']
+            rent = property['rent'] * rent_multiplier
+
+        self.main.game.rent_for_property(name, rent)
 
         player.money += self.sub_money(rent)
 
@@ -238,25 +274,88 @@ class Player(object):
                 else:
                     players = list(self.main.players)
                     players.remove(self)
-                    highest_bid = []
-                    for player in players:
-                        if not highest_bid:
-                            highest_bid = [player, player.money * .1]
-                        else:
-                            if player.money * .1 > highest_bid[1]:
-                                highest_bid = [player, player.money * .1]
+                    highest_bid = self.property_bid(players,values)
+                    if highest_bid and highest_bid[1] > 0:
+                        banker.buy_property(purchasing_property=name, player=highest_bid[0], price=highest_bid[1])
                 return True
         return False
 
+    def property_bid(self, players, values, multiplier=0.95, highest_bid=[]):
+        try:
+            new_players = list(players)
+            saved_players=list(players)
+            for player in new_players:
+                if player.money > values['price']:
+                    if not highest_bid:
+                        highest_bid = [player, values['price']]
+                    else:
+                        if highest_bid[1] * 1.1 < player.money * .75:
+                            highest_bid = [player, highest_bid[1] * 1.1]
+                        else:
+                            players.remove(player)
+                else:
+                    if not highest_bid:
+                        if player.money > (values['price'] * multiplier):
+                            highest_bid = [player, int(values['price'] * multiplier)]
+                    else:
+                        if highest_bid[1] * 1.1 < player.money:
+                            highest_bid = [player, int(highest_bid[1] * 1.1)]
+                        else:
+                            players.remove(player)
+            if (len(highest_bid) == 2 and highest_bid[1] <= 0) or multiplier <= 0:
+                if multiplier <= 0:
+                    highest_bid = [0,0]
+                return highest_bid
+            if not highest_bid or len(players) > 1:
+                multiplier -= .05
+                if not players:
+                   players = saved_players
+                return self.property_bid(players, values, multiplier, highest_bid)
+            else:
+                return highest_bid
+        except RecursionError:
+            highest_bid = [0, 0]
+            return highest_bid
+
+    # Check if player, self, or both will get a monopoly from trade. Increase cost of trade if only one will get a monopoly
+    def is_monopoly(self, player, player_color, self_color):
+        is_player_monopoly = False
+        is_self_monopoly = False
+
+        player_owned_colors = player.owned_colors
+        self_owned_colors = self.owned_colors
+
+        for color, value in player_owned_colors.items():
+            if color == self_color and (self_color != 'RR' or self_color != 'Util'):
+                if (value['owned'] + 1) == value['possible']:
+                    is_player_monopoly = True
+
+        for color, value in self_owned_colors.items():
+            if color == player_color and (player_color != 'RR' or player_color != 'Util'):
+                if (value['owned'] + 1) == value['possible']:
+                    is_self_monopoly = True
+
+        if is_player_monopoly and not is_self_monopoly:
+            return 'Player'
+        elif is_self_monopoly and not is_player_monopoly:
+            return 'Self'
+
+        return 'None'
+
+    # Runs when a player has no more money
     def player_loss(self):
-        for name, values in self.properties.items():
+        properties = dict(self.properties)
+        for name, values in properties.items():
             values['ismortgaged'] = False
             values['isbuyable'] = True
-            values['houses'] = 0
-            values['hotels'] = 0
+            if 'houses' in values and 'hotels' in values:
+                values['houses'] = 0
+                values['hotels'] = 0
             self.main.banker.properties[name] = values
+            del self.properties[name]
         self.alive = False
-        self.main.players.remove(self)
+        if self in self.main.players:
+            self.main.players.remove(self)
 
 
 
