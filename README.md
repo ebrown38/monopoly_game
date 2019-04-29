@@ -1,4 +1,4 @@
-# monopoly_game
+# Monopoly Game
 Script to play a game of monopoly and collect stats on it
 
 All You have to do is run the Main.py file and the games will start playing. The script will print out what iteration it is on for every 1000 games that are played.
